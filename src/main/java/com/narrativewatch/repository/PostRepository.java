@@ -14,5 +14,7 @@ public interface PostRepository extends JpaRepository<PostEntity, Long> {
 
     List<PostEntity> findByTopicBucketAndPostedAtAfter(String topic, LocalDateTime after);
 
+    List<PostEntity> findByPostedAtAfter(LocalDateTime after);
+
     long countByTopicBucketAndPostedAtBetween(String topic, LocalDateTime start, LocalDateTime end);
 }

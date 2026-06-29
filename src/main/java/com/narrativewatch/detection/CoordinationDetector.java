@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
 import java.util.List;
 
 @Component
@@ -17,28 +18,24 @@ import java.util.List;
 public class CoordinationDetector {
 
     private static final Logger log = LoggerFactory.getLogger(CoordinationDetector.class);
-    private static final int SIGNAL_THRESHOLD = 2;
+    private static final int SIGNAL_THRESHOLD = 3;
+    private static final int TOTAL_SIGNALS = 4;
 
     private final AlertRepository alertRepository;
     private final AlertAccountRepository alertAccountRepository;
 
-    public void evaluate(List<TemporalClusterResult> temporalResults, GraphClusterResult graphResult) {
+    public void evaluate(List<TemporalClusterResult> temporalResults, GraphClusterResult graphResult,
+                         boolean behavioralFired, boolean semanticFired) {
         boolean temporalFired = temporalResults.stream().anyMatch(TemporalClusterResult::signalFired);
         boolean graphFired = graphResult.signalFired();
 
-        int signalsFired = 0;
-        StringBuilder signalsStr = new StringBuilder();
-        if (temporalFired) {
-            signalsFired++;
-            signalsStr.append("temporal");
-        }
-        if (graphFired) {
-            if (signalsStr.length() > 0) signalsStr.append(", ");
-            signalsFired++;
-            signalsStr.append("network");
-        }
+        List<String> firedSignals = new ArrayList<>();
+        if (temporalFired) firedSignals.add("temporal");
+        if (graphFired) firedSignals.add("network");
+        if (behavioralFired) firedSignals.add("behavioral");
+        if (semanticFired) firedSignals.add("semantic");
 
-        if (signalsFired < SIGNAL_THRESHOLD) return;
+        if (firedSignals.size() < SIGNAL_THRESHOLD) return;
 
         String topic = temporalResults.stream()
                 .filter(TemporalClusterResult::signalFired)
@@ -48,8 +45,8 @@ public class CoordinationDetector {
 
         String narrative = "Potential coordinated narrative injection detected in topic '" + topic + "'";
         int accountCount = graphFired ? graphResult.suspiciousAccounts() : 0;
-        double confidence = Math.min((double) signalsFired / 2.0, 1.0);
-        String firedSignals = signalsStr.toString();
+        double confidence = Math.min((double) firedSignals.size() / TOTAL_SIGNALS, 1.0);
+        String signalsStr = String.join(", ", firedSignals);
 
         if (isDuplicate(narrative)) {
             log.info("Suppressed duplicate alert for: {}", narrative);
@@ -61,7 +58,7 @@ public class CoordinationDetector {
                 .narrative(narrative)
                 .accountCount(accountCount)
                 .confidence(confidence)
-                .signalsFired(firedSignals)
+                .signalsFired(signalsStr)
                 .build();
         alertRepository.save(alert);
 
@@ -73,7 +70,7 @@ public class CoordinationDetector {
         }
 
         log.warn("ALERT FIRED: {} | accounts={} confidence={} signals=[{}]",
-                narrative, accountCount, String.format("%.2f", confidence), firedSignals);
+                narrative, accountCount, String.format("%.2f", confidence), signalsStr);
     }
 
     private boolean isDuplicate(String narrative) {
